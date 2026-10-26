@@ -1,6 +1,7 @@
 import { getItem, getListing, saveListing } from './db';
 import { publishers } from './platforms';
-import { shortError } from './platforms/browser';
+import { setConnected } from './connections';
+import { NotLoggedInError, shortError } from './platforms/browser';
 import { BUSY_STATUSES, type Platform } from './types';
 
 /**
@@ -33,9 +34,11 @@ async function run(itemId: number, platform: Platform): Promise<void> {
       report: (patch) => saveListing(itemId, platform, patch),
     });
     saveListing(itemId, platform, { status: 'listed', ...result });
+    if (platform !== 'ebay') setConnected(platform, true);
     console.log(`[${platform}] listed item ${itemId}${result.url ? ` → ${result.url}` : ''}`);
   } catch (err) {
     const message = shortError(err);
+    if (err instanceof NotLoggedInError && platform !== 'ebay') setConnected(platform, false);
     console.error(`[${platform}] item ${itemId} failed: ${message}`);
     if (getItem(itemId)) saveListing(itemId, platform, { status: 'failed', message });
   }

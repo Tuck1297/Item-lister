@@ -4,7 +4,15 @@ import { config } from '../../config';
 import { photoPath } from '../../db';
 import type { Condition, ItemFull } from '../../types';
 import type { Publisher } from '../types';
-import { EbayApiError, ebayHosts, ebayRequest, missingAppConfig, missingListingConfig } from './client';
+import {
+  EbayApiError,
+  ebayHosts,
+  ebayRequest,
+  isConnected,
+  listingSettings,
+  missingAppConfig,
+  missingListingConfig,
+} from './client';
 
 const INVENTORY = '/sell/inventory/v1';
 const TAXONOMY = '/commerce/taxonomy/v1';
@@ -157,8 +165,12 @@ export const ebay: Publisher = {
   label: 'eBay',
 
   async publish(item, ctx) {
-    const missing = [...missingAppConfig(), ...missingListingConfig()];
-    if (missing.length) throw new Error(`eBay isn't set up yet. Add ${missing.join(', ')} to .env (see README)`);
+    const missingKeys = missingAppConfig();
+    if (missingKeys.length) throw new Error(`eBay isn't set up yet. Add ${missingKeys.join(', ')} to .env (see README)`);
+    if (!isConnected()) throw new Error("eBay isn't connected yet. Connect it from Connections");
+    const missingSetup = missingListingConfig();
+    if (missingSetup.length) throw new Error(`Choose your eBay ${missingSetup.join(', ')} in Connections`);
+    const settings = listingSettings();
     if (!item.photos.length) throw new Error('eBay needs at least one photo');
 
     const notes: string[] = [];
@@ -204,11 +216,11 @@ export const ebay: Publisher = {
       categoryId,
       listingDescription: htmlDescription(item.description || item.title),
       listingPolicies: {
-        fulfillmentPolicyId: config.ebay.fulfillmentPolicyId,
-        paymentPolicyId: config.ebay.paymentPolicyId,
-        returnPolicyId: config.ebay.returnPolicyId,
+        fulfillmentPolicyId: settings.fulfillmentPolicyId,
+        paymentPolicyId: settings.paymentPolicyId,
+        returnPolicyId: settings.returnPolicyId,
       },
-      merchantLocationKey: config.ebay.merchantLocationKey,
+      merchantLocationKey: settings.merchantLocationKey,
       pricingSummary: { price: { value: (item.price_cents / 100).toFixed(2), currency: config.ebay.currency } },
     };
 

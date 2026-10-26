@@ -1,16 +1,16 @@
-# Crosslister
+# Item Lister
 
-Enter an item once (photos, title, price, condition and so on), store it in SQLite, then post it to **eBay**, **Facebook Marketplace** and **Poshmark** from one small web UI.
+Enter an item once (photos, title, price, condition and so on), store it in SQLite, then post it to **eBay**, **Facebook Marketplace** and **Poshmark** from a React + Mantine web UI. All logins are done from the UI.
 
-| Platform | How it posts | Why |
+| Platform | How it posts | How you log in |
 | --- | --- | --- |
-| eBay | Official Sell APIs (Inventory, Media, Taxonomy) | Stable, no account risk |
-| Facebook Marketplace | Playwright drives the "Create listing" form | Meta's listing API is only for approved partners |
-| Poshmark | Playwright drives poshmark.com/create-listing | No public listing API |
+| eBay | Official Sell APIs (Inventory, Media, Taxonomy) | **Connections → Open eBay sign-in**, then paste the page eBay returns you to |
+| Facebook Marketplace | Playwright drives the "Create listing" form | **Connections → Log in to Facebook** opens a browser window |
+| Poshmark | Playwright drives poshmark.com/create-listing | **Connections → Log in to Poshmark** opens a browser window |
 
-By default the browser platforms run in **review mode**: Crosslister fills in the form, leaves the tab open with a banner, and waits for you to click Publish. Set `POST_MODE=auto` to click Publish too. Even in auto mode, a listing falls back to review if any field couldn't be filled.
+By default the browser platforms run in **review mode**: Item Lister fills in the form, leaves the tab open with a banner, and waits for you to click Publish. Set `POST_MODE=auto` to click Publish too. Even in auto mode, a listing falls back to review if any field couldn't be filled.
 
-> **Run this on your own computer.** The browser automation opens real Chrome windows using your saved logins. Automating Facebook and Poshmark goes against their terms of service, and an account can be restricted for it. Review mode and the built-in pauses keep the activity close to normal use, but the risk is never zero.
+> **Run this on your own computer.** Logging in and posting open real Chrome windows that keep your Facebook and Poshmark sessions. Automating those sites goes against their terms of service, and an account can be restricted for it. Review mode and the built-in pauses keep the activity close to normal use, but the risk is never zero.
 
 ## Setup
 
@@ -19,45 +19,33 @@ Requirements: **Node 22.13+** (uses the built-in `node:sqlite`) and **Google Chr
 ```bash
 npm install
 cp .env.example .env
+npm start            # builds the UI, then serves everything at http://localhost:3000
 ```
 
-### 1. Log in to Facebook and Poshmark (once)
+While working on the code, run `npm run dev` instead. The UI then runs on http://localhost:5173 with hot reload, and the API on :3000.
 
-```bash
-npm run login -- facebook
-npm run login -- poshmark
-```
+### Connect your accounts
 
-A browser window opens. Log in, finish any 2FA, then close the window. Each session is saved in `data/profiles/<site>` and reused for posting. Run the command again whenever a site logs you out.
+Open **Connections** in the header (the badge shows how many of the 3 are ready).
 
-### 2. Connect eBay
+**Facebook and Poshmark:** click **Log in**. A browser window opens on the site's login page. Log in there, including any 2-step code. Item Lister notices you're signed in (by watching the session cookies), saves the session to `data/profiles/<site>`, and closes the window. **Check** re-verifies a saved login without opening a window. **Log out** deletes that saved browser profile. If a site logs you out later, the next post fails with "Not logged in" and the card flips back to **Log in**.
+
+**eBay:**
 
 1. Create an account at [developer.ebay.com](https://developer.ebay.com) and open **Application Keys**. Create a **Sandbox** keyset first.
-2. Under **User Tokens**, choose **Get a Token from eBay via Your Application** and add an eBay Redirect URL. Set its "auth accepted URL" to any page (for example `https://localhost/ebay-ok`). Copy the **RuName**.
-3. Put `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET` and `EBAY_RU_NAME` in `.env`, then:
-
-```bash
-npm run ebay:auth     # open the printed URL, agree, paste the redirect URL back
-npm run ebay:setup    # opts into business policies, creates your ship-from location, prints policy IDs
-```
-
-4. Copy the policy IDs that `ebay:setup` prints into `.env`. Set `EBAY_LOCATION_POSTAL_CODE` before running it so it can create the ship-from location.
-   - Sandbox accounts start with no policies. `npm run ebay:setup -- --create-policies` creates a basic set: free USPS Ground Advantage shipping, immediate payment, 30-day returns paid by the buyer.
-   - On production, you'd normally use the shipping/payment/return policies you already have in Seller Hub.
-5. Once a sandbox listing works, create a **Production** keyset, set `EBAY_ENV=production` with the production keys, and run `ebay:auth` and `ebay:setup` again. Tokens are stored separately for each environment.
-
-### 3. Run it
-
-```bash
-npm start            # http://localhost:3000
-```
+2. Under **User Tokens**, choose **Get a Token from eBay via Your Application** and add an eBay Redirect URL. Copy its **RuName**.
+3. Put `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET` and `EBAY_RU_NAME` in `.env` and restart. These are the only settings that live in `.env`.
+4. In **Connections → eBay**, click **Open eBay sign-in**, sign in (with a sandbox test user while `EBAY_ENV=sandbox`) and click **Agree**. Paste the address of the page eBay sends you to, then click **Connect**.
+   - To skip pasting, set the redirect's "auth accepted URL" to `http://localhost:3000/api/ebay/callback`, if eBay accepts a localhost address for your keyset. You'll then land straight back in the app.
+5. Choose your **shipping, payment and return policies**. Sandbox accounts start with none, so use **Create starter policies**: free USPS Ground Advantage shipping, immediate payment, and 30-day returns paid by the buyer. Then enter the **ZIP code** you ship from.
+6. Once a sandbox listing works, create a **Production** keyset, set `EBAY_ENV=production` with the production keys, restart, and connect again. Tokens and policy choices are stored separately for each environment.
 
 ## Using it
 
-1. **+ New item**: add photos (the first one is the cover), title, price, condition, and so on.
-2. **Save & post to all**, or post to one platform from its card.
-3. Watch each platform's status: *Queued → Posting → Review in browser → Listed* (or *Failed* with the reason, plus a Retry button).
-4. **Mark sold** ends the eBay listing through the API and flags Facebook and Poshmark as *Delist manually*. Click **Done** on those once you've removed them.
+1. **New item**: drop in photos (the first is the cover; ★ makes another photo the cover), then fill in the title, price, condition and so on.
+2. **Save & post to all**, or post to one platform from its box on the item card.
+3. Each platform shows its status: *Queued → Posting → Review in browser → Listed*, or *Failed* with the reason and a Retry button.
+4. **⋯ → Mark sold** ends the eBay listing through the API and flags Facebook and Poshmark as *Delist manually*. Click **Done** once you've removed them.
 
 ### Fields each platform uses
 
@@ -79,28 +67,30 @@ Re-posting to eBay updates the existing listing in place, since it's keyed by SK
 
 ## When Facebook or Poshmark changes their site
 
-Expect this to happen regularly. All selectors live at the top of `src/platforms/facebook.ts` and `src/platforms/poshmark.ts`. Each field has fallbacks, and a field that can't be found turns into a warning (shown in the UI and on the in-page banner) instead of failing the listing, so you can finish that field by hand. When a field keeps failing, open the page, inspect the input, and update its locator. Selectors assume the sites are in English.
+Expect this to happen regularly. All form selectors live at the top of `src/platforms/facebook.ts` and `src/platforms/poshmark.ts`, and the login detection lives in `src/connections.ts`. Each field has fallbacks, and a field that can't be found turns into a warning (shown in the UI and on the in-page banner) instead of failing the listing, so you can finish that field by hand. Selectors assume the sites are in English.
 
 ## Project layout
 
 ```
-src/
-  server.ts              HTTP API + static UI (no framework)
-  db.ts                  SQLite schema and queries (data/crosslister.db)
+src/                     API server (Node, no framework)
+  server.ts              routes + serves the built UI from dist/web
+  connections.ts         Facebook/Poshmark login windows, session checks, logout
+  db.ts                  SQLite schema and queries (data/item-lister.db)
   jobs.ts                one posting queue per platform
-  validate.ts            item form validation
   platforms/
-    ebay/client.ts       OAuth (refresh + app tokens) and request helper
+    ebay/client.ts       OAuth, stored policy choices, request helper
+    ebay/setup.ts        business policies + ship-from location
     ebay/index.ts        images → category → item specifics → inventory item → offer → publish
     facebook.ts          Marketplace form automation
     poshmark.ts          Poshmark form automation
     browser.ts           persistent Chrome profiles, review/auto hand-off
-  scripts/               login, ebay:auth, ebay:setup
-public/                  the web UI
+web/                     React + Mantine UI (Vite)
+  src/App.tsx            shell, item list, polling
+  src/components/        ItemCard, ItemEditor, ConnectionsDrawer
 data/                    database, photos, browser profiles, eBay tokens (git-ignored)
 ```
 
-`npm run typecheck` runs the TypeScript 7 native compiler.
+`npm run typecheck` checks both the server and the UI with the TypeScript 7 native compiler.
 
 ## Not built yet
 

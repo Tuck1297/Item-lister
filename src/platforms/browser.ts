@@ -7,14 +7,20 @@ export type Profile = 'facebook' | 'poshmark';
 
 const open = new Map<Profile, Promise<BrowserContext>>();
 
+export class NotLoggedInError extends Error {}
+
+export function profileDir(profile: Profile): string {
+  return path.join(config.profilesDir, profile);
+}
+
 /**
  * One persistent browser profile per site, so your logins survive restarts.
- * Profiles live in data/profiles/<site>; log in once with `npm run login -- <site>`.
+ * Profiles live in data/profiles/<site>; log in from the Connections panel in the UI.
  */
 export function getContext(profile: Profile): Promise<BrowserContext> {
   let pending = open.get(profile);
   if (!pending) {
-    pending = launch(profile);
+    pending = launch(profile, config.headless);
     open.set(profile, pending);
     pending.then(
       (ctx) => ctx.on('close', () => open.delete(profile)),
@@ -24,10 +30,40 @@ export function getContext(profile: Profile): Promise<BrowserContext> {
   return pending;
 }
 
-async function launch(profile: Profile): Promise<BrowserContext> {
-  const userDataDir = path.join(config.profilesDir, profile);
+/** A tab to work in: the blank one a fresh browser starts with, or a new one. */
+export async function newTab(context: BrowserContext): Promise<Page> {
+  return context.pages().find((p) => p.url() === 'about:blank') ?? context.newPage();
+}
+
+/** The profile's browser if it's already running, without launching one. */
+export async function openContext(profile: Profile): Promise<BrowserContext | undefined> {
+  return open.get(profile)?.catch(() => undefined);
+}
+
+export async function closeContext(profile: Profile): Promise<void> {
+  const ctx = await openContext(profile);
+  await ctx?.close().catch(() => {});
+}
+
+/**
+ * Runs fn against the profile without showing a window: reuses the open browser if
+ * there is one, otherwise starts a short-lived headless one on the same profile.
+ */
+export async function withQuietContext<T>(profile: Profile, fn: (ctx: BrowserContext) => Promise<T>): Promise<T> {
+  const existing = await openContext(profile);
+  if (existing) return fn(existing);
+  const ctx = await launch(profile, true);
+  try {
+    return await fn(ctx);
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
+
+async function launch(profile: Profile, headless: boolean): Promise<BrowserContext> {
+  const userDataDir = profileDir(profile);
   const options = {
-    headless: config.headless,
+    headless,
     viewport: null,
     args: ['--start-maximized', '--disable-blink-features=AutomationControlled'],
   };
@@ -131,7 +167,7 @@ export async function handOff(opts: HandOffOptions): Promise<'auto' | 'review'> 
       ? `Fix ${warnings.length} field(s) then click Publish: ${warnings.join(' · ')}`
       : 'Check the form, then click Publish in the browser window';
     opts.report({ status: 'awaiting_review', message: why });
-    await showBanner(page, `Crosslister: review this ${siteName} listing, then publish it.`, warnings);
+    await showBanner(page, `Item Lister: review this ${siteName} listing, then publish it.`, warnings);
     if (!config.headless) await page.bringToFront().catch(() => {});
   }
 
@@ -165,9 +201,9 @@ async function showBanner(page: Page, title: string, warnings: string[]): Promis
   await page
     .evaluate(
       ({ title, warnings }) => {
-        document.getElementById('crosslister-banner')?.remove();
+        document.getElementById('item-lister-banner')?.remove();
         const el = document.createElement('div');
-        el.id = 'crosslister-banner';
+        el.id = 'item-lister-banner';
         el.style.cssText =
           'position:fixed;bottom:16px;left:16px;z-index:2147483647;max-width:420px;padding:12px 14px;' +
           'background:#111827;color:#f9fafb;font:13px/1.4 system-ui,sans-serif;border-radius:10px;' +

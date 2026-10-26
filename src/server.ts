@@ -4,6 +4,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { config } from './config';
+import { checkLogin, connectionStatus, isSite, logout, startLogin } from './connections';
 import {
   addPhotos,
   createItem,
@@ -19,7 +20,16 @@ import {
 import { enqueue } from './jobs';
 import { publishers } from './platforms';
 import { shortError } from './platforms/browser';
-import { isConnected, missingAppConfig, missingListingConfig } from './platforms/ebay/client';
+import {
+  consentUrl,
+  disconnect as disconnectEbay,
+  exchangeCode,
+  isConnected,
+  missingAppConfig,
+  missingListingConfig,
+  saveListingSettings,
+} from './platforms/ebay/client';
+import { createDefaultPolicies, createLocation, getSetupStatus } from './platforms/ebay/setup';
 import { FACEBOOK_CATEGORIES } from './platforms/facebook';
 import { HttpError, PLATFORMS } from './types';
 import { parseItemInput, parsePlatforms } from './validate';
@@ -34,6 +44,8 @@ const STATIC_TYPES: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.png': 'image/png',
   '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
 };
 
 // ---------- Tiny router ----------
@@ -138,12 +150,109 @@ route('GET', '/api/config', () => ({
   postMode: config.postMode,
   platforms: PLATFORMS.map((p) => ({ id: p, label: publishers[p].label })),
   facebookCategories: FACEBOOK_CATEGORIES,
-  ebay: {
-    env: config.ebay.env,
-    missing: [...missingAppConfig(), ...missingListingConfig()],
-    connected: isConnected(),
-  },
 }));
+
+// ---------- Connections (logins) ----------
+
+function ebayStatus() {
+  const missingKeys = missingAppConfig();
+  const connected = missingKeys.length === 0 && isConnected();
+  return {
+    env: config.ebay.env,
+    missingKeys,
+    connected,
+    missingSetup: connected ? missingListingConfig() : [],
+    consentUrl: missingKeys.length ? null : consentUrl(),
+    callbackUrl: `http://localhost:${config.port}/api/ebay/callback`,
+  };
+}
+
+route('GET', '/api/connections', () => ({ sites: connectionStatus(), ebay: ebayStatus() }));
+
+function siteParam(params: Params) {
+  const site = params.site ?? '';
+  if (!isSite(site)) throw new HttpError(404, 'Unknown site');
+  return site;
+}
+
+/** Opens a browser window on the site's login page; the server closes it once you're logged in. */
+route('POST', '/api/connections/:site/login', async (_req, _res, params) => {
+  await startLogin(siteParam(params));
+  return { sites: connectionStatus(), ebay: ebayStatus() };
+});
+
+route('POST', '/api/connections/:site/check', async (_req, _res, params) => {
+  await checkLogin(siteParam(params));
+  return { sites: connectionStatus(), ebay: ebayStatus() };
+});
+
+route('POST', '/api/connections/:site/logout', async (_req, _res, params) => {
+  await logout(siteParam(params));
+  return { sites: connectionStatus(), ebay: ebayStatus() };
+});
+
+function codeFromRedirect(value: string): string {
+  const raw = value.match(/[?&]code=([^&#]+)/)?.[1] ?? value.trim();
+  if (!raw) throw new HttpError(400, 'Paste the full URL eBay sent you to after you clicked Agree');
+  return decodeURIComponent(raw);
+}
+
+/** Paste-back flow: works with any "auth accepted" URL you configured on the eBay developer portal. */
+route('POST', '/api/ebay/connect', async (req) => {
+  const missing = missingAppConfig();
+  if (missing.length) throw new HttpError(400, `Add ${missing.join(', ')} to .env and restart the server first`);
+  const { redirectUrl } = await readJson(req);
+  await exchangeCode(codeFromRedirect(String(redirectUrl ?? '')));
+  return { sites: connectionStatus(), ebay: ebayStatus() };
+});
+
+/** Automatic flow: used when your eBay "auth accepted" URL points at this server. */
+route('GET', '/api/ebay/callback', async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  let target = '/?ebay=connected';
+  try {
+    const code = url.searchParams.get('code');
+    if (!code) throw new Error(url.searchParams.get('error_description') ?? 'eBay did not send an authorization code');
+    await exchangeCode(code);
+  } catch (err) {
+    target = `/?ebay_error=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`;
+  }
+  res.writeHead(302, { Location: target });
+  res.end();
+});
+
+route('POST', '/api/ebay/disconnect', () => {
+  disconnectEbay();
+  return { sites: connectionStatus(), ebay: ebayStatus() };
+});
+
+route('GET', '/api/ebay/setup', () => getSetupStatus());
+
+route('PUT', '/api/ebay/setup', async (req) => {
+  const body = await readJson(req);
+  const pick = (key: string) => (typeof body[key] === 'string' ? (body[key] as string) : undefined);
+  saveListingSettings({
+    fulfillmentPolicyId: pick('fulfillmentPolicyId'),
+    paymentPolicyId: pick('paymentPolicyId'),
+    returnPolicyId: pick('returnPolicyId'),
+  });
+  return getSetupStatus();
+});
+
+route('POST', '/api/ebay/location', async (req) => {
+  const { postalCode } = await readJson(req);
+  const zip = String(postalCode ?? '').trim();
+  if (!zip) throw new HttpError(400, 'Enter the postal code you ship from');
+  await createLocation(zip);
+  return getSetupStatus();
+});
+
+route('POST', '/api/ebay/default-policies', async () => {
+  await createDefaultPolicies();
+  return getSetupStatus();
+});
+
+// ---------- Items ----------
 
 route('GET', '/api/items', () => listItems());
 
@@ -266,10 +375,16 @@ const server = http.createServer(async (req, res) => {
       if (!res.headersSent) json(res, 200, result ?? { ok: true });
       return;
     }
-    if (req.method === 'GET') {
-      if (url.pathname.startsWith('/uploads/') && serveFile(res, config.uploadsDir, url.pathname.slice(9))) return;
-      const page = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-      if (serveFile(res, config.publicDir, page)) return;
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
+      if (url.pathname.startsWith('/uploads/')) {
+        if (serveFile(res, config.uploadsDir, url.pathname.slice(9))) return;
+      } else if (serveFile(res, config.webDir, url.pathname.slice(1)) || serveFile(res, config.webDir, 'index.html')) {
+        return; // built UI, with index.html as the fallback for client-side routes
+      } else {
+        res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('The UI has not been built yet. Run `npm run build` (or `npm run dev` while developing).');
+        return;
+      }
     }
     json(res, 404, { error: 'Not found' });
   } catch (err) {
@@ -280,6 +395,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(config.port, config.host, () => {
-  console.log(`Crosslister running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
+  console.log(`Item Lister API running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   console.log(`Posting mode: ${config.postMode === 'auto' ? 'auto-publish' : 'review before publish'} · eBay: ${config.ebay.env}`);
 });

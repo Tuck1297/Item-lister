@@ -27,9 +27,10 @@ export const config = {
   browserChannel: env('BROWSER_CHANNEL', 'chrome'),
 
   root,
-  publicDir: path.join(root, 'public'),
+  /** The built React UI (`npm run build`). */
+  webDir: path.join(root, 'dist', 'web'),
   dataDir,
-  dbPath: path.join(dataDir, 'crosslister.db'),
+  dbPath: path.join(dataDir, 'item-lister.db'),
   uploadsDir: path.join(dataDir, 'uploads'),
   profilesDir: path.join(dataDir, 'profiles'),
 

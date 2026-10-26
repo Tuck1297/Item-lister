@@ -1,7 +1,18 @@
 import type { Page } from 'playwright';
 import { photoPath } from '../db';
 import type { Condition } from '../types';
-import { anyOf, exactText, fillField, FormFiller, getContext, handOff, pause, wholeDollars } from './browser';
+import {
+  anyOf,
+  exactText,
+  fillField,
+  FormFiller,
+  getContext,
+  handOff,
+  newTab,
+  NotLoggedInError,
+  pause,
+  wholeDollars,
+} from './browser';
 import type { Publisher } from './types';
 
 /*
@@ -49,7 +60,7 @@ async function assertLoggedIn(page: Page): Promise<void> {
   await page.waitForLoadState('domcontentloaded');
   await pause(1500, 2500);
   if (new URL(page.url()).pathname.startsWith('/login')) {
-    throw new Error('Not logged in to Poshmark. Run `npm run login -- poshmark`, log in, then close that window');
+    throw new NotLoggedInError('Not logged in to Poshmark. Log in from Connections, then retry');
   }
 }
 
@@ -61,7 +72,7 @@ export const poshmark: Publisher = {
     if (!item.photos.length) throw new Error('Poshmark needs at least one photo');
 
     const context = await getContext('poshmark');
-    const page = await context.newPage();
+    const page = await newTab(context);
     await page.goto(CREATE_URL, { waitUntil: 'domcontentloaded' });
     await assertLoggedIn(page);
 

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../../config';
+import { getSetting, setSetting } from '../../db';
 
 export const EBAY_SCOPES = [
   'https://api.ebay.com/oauth/api_scope',
@@ -27,14 +28,30 @@ export function missingAppConfig(): string[] {
     .map(([k]) => k);
 }
 
-/** Business policies needed before an offer can be published (`npm run ebay:setup` prints these). */
+export const LISTING_SETTING_KEYS = ['fulfillmentPolicyId', 'paymentPolicyId', 'returnPolicyId', 'merchantLocationKey'] as const;
+export type ListingSettings = Record<(typeof LISTING_SETTING_KEYS)[number], string>;
+
+/** Policy IDs and ship-from location: chosen in the UI (stored per eBay environment), falling back to .env. */
+export function listingSettings(): ListingSettings {
+  const get = (key: keyof ListingSettings) => getSetting(`ebay.${config.ebay.env}.${key}`) ?? config.ebay[key];
+  return {
+    fulfillmentPolicyId: get('fulfillmentPolicyId'),
+    paymentPolicyId: get('paymentPolicyId'),
+    returnPolicyId: get('returnPolicyId'),
+    merchantLocationKey: get('merchantLocationKey') || 'home',
+  };
+}
+
+export function saveListingSettings(patch: Partial<ListingSettings>): void {
+  for (const key of LISTING_SETTING_KEYS) {
+    if (patch[key] !== undefined) setSetting(`ebay.${config.ebay.env}.${key}`, patch[key]);
+  }
+}
+
+/** Business policies still to choose before an offer can be published. */
 export function missingListingConfig(): string[] {
-  const { fulfillmentPolicyId, paymentPolicyId, returnPolicyId } = config.ebay;
-  return Object.entries({
-    EBAY_FULFILLMENT_POLICY_ID: fulfillmentPolicyId,
-    EBAY_PAYMENT_POLICY_ID: paymentPolicyId,
-    EBAY_RETURN_POLICY_ID: returnPolicyId,
-  })
+  const s = listingSettings();
+  return Object.entries({ 'shipping policy': s.fulfillmentPolicyId, 'payment policy': s.paymentPolicyId, 'return policy': s.returnPolicyId })
     .filter(([, v]) => !v)
     .map(([k]) => k);
 }
@@ -60,6 +77,11 @@ function readToken(): StoredToken | undefined {
 
 function writeToken(token: StoredToken): void {
   fs.writeFileSync(tokenFile(), JSON.stringify(token, null, 2), { mode: 0o600 });
+}
+
+export function disconnect(): void {
+  fs.rmSync(tokenFile(), { force: true });
+  appTokenCache = undefined;
 }
 
 export function isConnected(): boolean {
@@ -111,9 +133,9 @@ export async function exchangeCode(code: string): Promise<void> {
 
 async function userToken(): Promise<string> {
   const stored = readToken();
-  if (!stored) throw new Error("eBay isn't connected yet. Run `npm run ebay:auth`");
+  if (!stored) throw new Error("eBay isn't connected yet. Connect it from Connections");
   if (stored.refresh_token_expires_at < Date.now()) {
-    throw new Error('The eBay authorization expired (they last ~18 months). Run `npm run ebay:auth` again');
+    throw new Error('The eBay authorization expired (they last ~18 months). Reconnect it from Connections');
   }
   if (stored.access_token && (stored.access_token_expires_at ?? 0) > Date.now() + 60_000) return stored.access_token;
 
