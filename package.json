@@ -1,0 +1,26 @@
+{
+  "name": "crosslister",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Store items in SQLite and crosslist them to eBay (Sell API), Facebook Marketplace and Poshmark (browser automation).",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
+    "login": "tsx src/scripts/login.ts",
+    "ebay:auth": "tsx src/scripts/ebay-auth.ts",
+    "ebay:setup": "tsx src/scripts/ebay-setup.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "playwright": "^1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "tsx": "^4.20.0",
+    "typescript": "^7.0.2"
+  }
+}

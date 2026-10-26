@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Crosslister</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">⇶</span>
+        <h1>Crosslister</h1>
+      </div>
+      <div id="badges" class="badges"></div>
+      <button id="new-item" class="primary">+ New item</button>
+    </header>
+
+    <main>
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Search title, SKU, brand…" aria-label="Search items" />
+        <label class="toggle"><input id="show-sold" type="checkbox" /> Show sold</label>
+      </div>
+      <div id="notice" class="notice" hidden></div>
+      <section id="items" class="items" aria-live="polite"></section>
+    </main>
+
+    <dialog id="editor">
+      <form id="item-form" method="dialog">
+        <header class="dialog-head">
+          <h2 id="editor-title">New item</h2>
+          <button type="button" class="ghost" data-close aria-label="Close">✕</button>
+        </header>
+
+        <div class="dialog-body">
+          <fieldset>
+            <legend>Photos</legend>
+            <div id="photo-grid" class="photo-grid"></div>
+            <label class="dropzone">
+              <input id="photo-input" name="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple />
+              <span>Add photos <small>(JPEG, PNG or WebP · first photo is the cover)</small></span>
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Basics</legend>
+            <label class="wide">
+              Title <span class="counter" id="title-count">0/80</span>
+              <input name="title" maxlength="80" required />
+            </label>
+            <label class="wide">
+              Description
+              <textarea name="description" rows="5"></textarea>
+            </label>
+            <div class="row">
+              <label>Price ($)<input name="price" type="number" min="0.01" step="0.01" required /></label>
+              <label>
+                Original price ($)
+                <input name="original_price" type="number" min="0.01" step="0.01" placeholder="Poshmark" />
+              </label>
+              <label>Quantity<input name="quantity" type="number" min="1" step="1" value="1" /></label>
+            </div>
+            <div class="row">
+              <label>
+                Condition
+                <select name="condition">
+                  <option value="new">New</option>
+                  <option value="like_new">Like new</option>
+                  <option value="good" selected>Good</option>
+                  <option value="fair">Fair</option>
+                  <option value="poor">Poor</option>
+                </select>
+              </label>
+              <label>Brand<input name="brand" /></label>
+              <label>Size<input name="size" /></label>
+            </div>
+            <div class="row">
+              <label>Color<input name="color" /></label>
+              <label>Weight (oz)<input name="weight_oz" type="number" min="0.1" step="0.1" /></label>
+              <label>SKU<input name="sku" placeholder="Auto" /></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Platform details</legend>
+            <div class="row">
+              <label>
+                eBay category ID
+                <input name="ebay_category_id" inputmode="numeric" placeholder="Blank = auto-suggest" />
+              </label>
+              <label>
+                Facebook category
+                <input name="facebook_category" list="fb-categories" placeholder="e.g. Household" />
+                <datalist id="fb-categories"></datalist>
+              </label>
+            </div>
+            <label class="wide">
+              Poshmark category
+              <input name="poshmark_category" placeholder="Women > Tops > Blouses" />
+            </label>
+            <label class="wide">
+              eBay item specifics <small>one per line: <code>Name: value</code></small>
+              <textarea name="ebay_aspects" rows="3" placeholder="Department: Women&#10;Type: Blouse"></textarea>
+            </label>
+          </fieldset>
+          <p id="form-error" class="form-error" hidden></p>
+        </div>
+
+        <footer class="dialog-foot">
+          <button type="button" class="ghost" data-close>Cancel</button>
+          <button type="submit" value="save" class="secondary">Save</button>
+          <button type="submit" value="save-post" class="primary">Save &amp; post to all</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
